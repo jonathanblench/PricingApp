@@ -4,16 +4,38 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
 import difflib
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
 import time
 import re
+
+# Try to import Selenium, fallback gracefully if not available
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    from webdriver_manager.chrome import ChromeDriverManager
+    SELENIUM_AVAILABLE = True
+except ImportError as e:
+    st.error(f"⚠️ Selenium import failed: {e}")
+    st.info("""
+    **Deployment Issue Detected:** 
+    
+    If you're seeing this on Streamlit Cloud:
+    1. Check that `packages.txt` contains: `chromium-browser` and `chromium-chromedriver`
+    2. Check that `requirements.txt` contains: `selenium` and `webdriver-manager`
+    3. Try redeploying the app
+    4. The app will use fallback mode with limited functionality
+    """)
+    SELENIUM_AVAILABLE = False
 
 st.set_page_config(page_title="CeX Price Checker", page_icon="💷", layout="centered")
 
 st.title("💷 CeX Sell Price Checker")
+
+# Show status based on Selenium availability
+if SELENIUM_AVAILABLE:
+    st.success("✅ **Full Mode** - Selenium enabled for complete functionality")
+else:
+    st.warning("⚠️ **Limited Mode** - Using fallback method (some features may not work)")
 
 st.markdown(
     """
@@ -94,7 +116,18 @@ uploaded_file = st.file_uploader(
 
 @st.cache_data(ttl=300)  # Cache results for 5 minutes
 def fetch_cex_price(product_name):
-    """Search CeX and return the best matched product and its sell price using Selenium."""
+    """Search CeX and return the best matched product and its sell price."""
+    if not product_name or not product_name.strip():
+        return None, None, None
+    
+    # Try Selenium first if available, fallback to requests method
+    if SELENIUM_AVAILABLE:
+        return fetch_cex_price_selenium(product_name)
+    else:
+        return fetch_cex_price_fallback(product_name)
+
+def fetch_cex_price_selenium(product_name):
+    """Search CeX using Selenium (preferred method)."""
     if not product_name or not product_name.strip():
         return None, None, None
     
@@ -216,6 +249,38 @@ def fetch_cex_price(product_name):
                 driver.quit()
             except Exception:
                 pass  # Ignore cleanup errors
+
+def fetch_cex_price_fallback(product_name):
+    """Fallback method using requests when Selenium is not available."""
+    try:
+        st.warning("Using fallback mode - limited functionality. Some prices may not be available.")
+        
+        # Try simple requests approach (limited success due to JavaScript)
+        search_url = f"https://uk.webuy.com/search?stext={requests.utils.quote(product_name.strip())}"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        
+        response = requests.get(search_url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Look for any price patterns in the HTML
+            price_pattern = r'£[\d,]+(?:\.\d{2})?'
+            prices = re.findall(price_pattern, response.text)
+            
+            if prices:
+                # Return a basic result indicating fallback mode
+                return f"Search results found (fallback mode)", prices[0].replace('£', ''), search_url
+            else:
+                return f"No prices found in fallback mode", None, search_url
+        else:
+            return None, None, None
+            
+    except Exception as e:
+        st.error(f"Fallback method also failed: {str(e)}")
+        return None, None, None
 
 
 if uploaded_file:
