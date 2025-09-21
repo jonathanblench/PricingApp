@@ -204,25 +204,10 @@ def fetch_cex_price_selenium(product_name):
                         shutil.rmtree(cache_dir, ignore_errors=True)
                         st.info("🔄 Cleared ChromeDriver cache to get compatible version")
                     
-                    # Try multiple approaches to get compatible ChromeDriver
-                    chrome_managers = [
-                        ChromeDriverManager(),  # Auto-detect
-                        ChromeDriverManager(version="LATEST_RELEASE_120"),  # Specific for Chrome 120
-                        ChromeDriverManager(version="latest")  # Force latest
-                    ]
-                    
-                    driver = None
-                    for manager in chrome_managers:
-                        try:
-                            service = Service(manager.install())
-                            driver = webdriver.Chrome(service=service, options=chrome_options)
-                            st.success(f"✅ Chrome initialized with {manager.__class__.__name__}")
-                            break
-                        except Exception as version_attempt_error:
-                            continue
-                    
-                    if not driver:
-                        raise Exception("All Chrome version attempts failed")
+                    # Install ChromeDriver (compatible API)
+                    service = Service(ChromeDriverManager().install())
+                    driver = webdriver.Chrome(service=service, options=chrome_options)
+                    st.success("✅ Chrome initialized successfully")
                     
                 except Exception as chrome_version_error:
                     st.warning(f"Chrome version compatibility issue: {str(chrome_version_error)[:200]}...")
@@ -257,6 +242,9 @@ def fetch_cex_price_selenium(product_name):
                 firefox_options.add_argument('--disable-dev-shm-usage')
                 firefox_options.add_argument('--disable-gpu')
                 firefox_options.add_argument('--window-size=1920,1080')
+                firefox_options.add_argument('--disable-blink-features=AutomationControlled')
+                firefox_options.set_preference('general.useragent.override', 'Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0')
+                firefox_options.set_preference('dom.webdriver.enabled', False)
                 firefox_options.binary_location = firefox_binary
                 
                 st.info(f"🦊 Using Firefox: {firefox_binary}")
@@ -272,19 +260,48 @@ def fetch_cex_price_selenium(product_name):
         search_url = f"https://uk.webuy.com/search?stext={requests.utils.quote(product_name.strip())}"
         driver.get(search_url)
         
-        # Wait for JavaScript content to load with exponential backoff
-        for attempt in range(3):
-            time.sleep(2 + attempt)  # 2, 3, 4 seconds
+        # Wait for JavaScript content to load with exponential backoff (longer for Firefox)
+        for attempt in range(4):
+            wait_time = 3 + (attempt * 2)  # 3, 5, 7, 9 seconds
+            st.info(f"⏳ Waiting {wait_time}s for content to load (attempt {attempt + 1}/4)...")
+            time.sleep(wait_time)
             page_source = driver.page_source
-            if 'product-detail' in page_source:
+            if 'product-detail' in page_source or len(page_source) > 100000:
+                st.success(f"✅ Content loaded after {wait_time}s")
                 break
+            elif attempt == 3:
+                st.warning("⚠️ Content may not have fully loaded")
         
         soup = BeautifulSoup(page_source, 'html.parser')
+        
+        # Verify page loaded correctly
+        page_title = soup.find('title')
+        if page_title:
+            st.info(f"📜 Page loaded: {page_title.get_text().strip()}")
+        
+        # Check for CeX-specific indicators
+        if 'cex' in page_source.lower() or 'webuy' in page_source.lower():
+            st.success("✅ CeX website detected in page content")
+        else:
+            st.warning("⚠️ CeX website indicators not found - may be blocked or loading issue")
         
         # Find product links and their associated prices
         product_links = soup.select('a[href*="/product-detail"]')
         
+        # Debug information
+        st.info(f"🔍 Search for '{product_name}': Found {len(product_links)} product links")
+        
+        # Also check for alternative link patterns if main pattern fails
         if not product_links:
+            alt_links = soup.select('a[href*="product"]')
+            st.info(f"🔍 Alternative search found {len(alt_links)} potential product links")
+            if len(alt_links) > 0:
+                # Show first few links for debugging
+                sample_links = [link.get('href', '') for link in alt_links[:3]]
+                st.info(f"🔍 Sample links: {sample_links}")
+        
+        if not product_links:
+            st.warning(f"⚠️ No product links found for '{product_name}'. Site structure may have changed.")
             return None, None, None
         
         best_match = None
