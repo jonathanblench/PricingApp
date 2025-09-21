@@ -2,11 +2,23 @@
 
 ## Common Issues and Solutions
 
-### 1. "ModuleNotFoundError: No module named 'selenium'"
+### 1. "ModuleNotFoundError: No module named 'selenium'" ✅ FIXED
 
 **Symptoms:**
 - App shows error message about Selenium not being available
 - App falls back to "Limited Mode"
+
+### 2. Browser Binary Location Errors
+
+**Symptoms:**
+- "Expected browser binary location, but unable to find binary"
+- "Service chromedriver unexpectedly exited. Status code was: 127"
+- "no 'moz:firefoxOptions.binary' capability provided"
+
+**Current Solution:**
+- Added `packages.txt` with `chromium` and `firefox-esr`
+- Code now explicitly detects and sets browser binary paths
+- Shows debug info about available browsers
 
 **Solutions:**
 

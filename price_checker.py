@@ -155,15 +155,68 @@ def fetch_cex_price_selenium(product_name):
         chrome_options.add_argument('--remote-debugging-port=9222')
         chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         
-        # Try Chrome first, fallback to Firefox for Streamlit Cloud compatibility
+        # Configure browser binaries for Streamlit Cloud
+        import os
+        
+        # Debug: Show available binaries
+        available_binaries = []
+        possible_paths = [
+            '/usr/bin/chromium', '/usr/bin/chromium-browser',
+            '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
+            '/usr/bin/firefox', '/usr/bin/firefox-esr'
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                available_binaries.append(path)
+        
+        if available_binaries:
+            st.info(f"🔍 Found browsers: {', '.join(available_binaries)}")
+        else:
+            st.warning("⚠️ No browser binaries found in standard locations")
+        
+        # Try Chrome first with explicit binary paths
         try:
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=chrome_options)
+            # Set Chrome binary location explicitly
+            chrome_binary_paths = [
+                '/usr/bin/chromium',
+                '/usr/bin/chromium-browser',
+                '/usr/bin/google-chrome',
+                '/usr/bin/google-chrome-stable'
+            ]
+            
+            chrome_binary = None
+            for path in chrome_binary_paths:
+                if os.path.exists(path):
+                    chrome_binary = path
+                    break
+            
+            if chrome_binary:
+                chrome_options.binary_location = chrome_binary
+                service = Service(ChromeDriverManager().install())
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+            else:
+                raise Exception("No Chrome binary found")
+                
         except Exception as chrome_error:
             st.warning(f"Chrome failed ({chrome_error}), trying Firefox...")
             try:
                 from selenium.webdriver.firefox.options import Options as FirefoxOptions
                 from webdriver_manager.firefox import GeckoDriverManager
+                
+                # Set Firefox binary location explicitly
+                firefox_binary_paths = [
+                    '/usr/bin/firefox',
+                    '/usr/bin/firefox-esr'
+                ]
+                
+                firefox_binary = None
+                for path in firefox_binary_paths:
+                    if os.path.exists(path):
+                        firefox_binary = path
+                        break
+                
+                if not firefox_binary:
+                    raise Exception("No Firefox binary found")
                 
                 firefox_options = FirefoxOptions()
                 firefox_options.add_argument('--headless')
@@ -171,9 +224,11 @@ def fetch_cex_price_selenium(product_name):
                 firefox_options.add_argument('--disable-dev-shm-usage')
                 firefox_options.add_argument('--disable-gpu')
                 firefox_options.add_argument('--window-size=1920,1080')
+                firefox_options.binary_location = firefox_binary
                 
                 service = Service(GeckoDriverManager().install())
                 driver = webdriver.Firefox(service=service, options=firefox_options)
+                
             except Exception as firefox_error:
                 st.error(f"Both Chrome and Firefox failed: {chrome_error}, {firefox_error}")
                 raise firefox_error
