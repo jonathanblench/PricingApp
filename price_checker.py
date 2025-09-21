@@ -258,19 +258,50 @@ def fetch_cex_price_selenium(product_name):
                 raise firefox_error
         driver.set_page_load_timeout(15)  # Set timeout
         
-        search_url = f"https://uk.webuy.com/search?stext={requests.utils.quote(product_name.strip())}"
-        driver.get(search_url)
+        # Simplify search term for better matching
+        search_term = product_name.strip()
+        # Remove detailed descriptors for initial search
+        search_term = re.sub(r'\s*[,w]\/.*$', '', search_term)
+        st.info(f"🔍 Simplified search term: '{search_term}'")
         
-        # Wait for JavaScript content to load with exponential backoff (longer for Firefox)
-        for attempt in range(4):
-            wait_time = 3 + (attempt * 2)  # 3, 5, 7, 9 seconds
-            st.info(f"⏳ Waiting {wait_time}s for content to load (attempt {attempt + 1}/4)...")
-            time.sleep(wait_time)
+        search_url = f"https://uk.webuy.com/search?stext={requests.utils.quote(search_term)}"
+        st.info(f"🌐 Searching URL: {search_url}")
+        
+        try:
+            driver.get(search_url)
+            
+            # Wait for dynamic content with WebDriverWait
+            from selenium.webdriver.common.by import By
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            
+            # First wait for page load
+            wait = WebDriverWait(driver, 10)
+            
+            # Try different indicators that the page has loaded
+            indicators_to_try = [
+                (By.CSS_SELECTOR, 'a[href*="product"]'),
+                (By.CSS_SELECTOR, 'div[class*="product"]'),
+                (By.CSS_SELECTOR, 'div[class*="search"]'),
+                (By.CSS_SELECTOR, 'div[class*="result"]')
+            ]
+            
+            for locator in indicators_to_try:
+                try:
+                    element = wait.until(EC.presence_of_element_located(locator))
+                    st.success(f"✅ Content loaded (found {locator[1]})")
+                    break
+                except:
+                    continue
+            
+            # Get updated page source after JavaScript execution
+            time.sleep(2)  # Short final wait for any remaining updates
             page_source = driver.page_source
-            if 'product-detail' in page_source or len(page_source) > 100000:
-                st.success(f"✅ Content loaded after {wait_time}s")
-                break
-            elif attempt == 3:
+            st.info(f"📝 Page content length: {len(page_source)} bytes")
+            
+        except Exception as nav_error:
+            st.error(f"Navigation error: {str(nav_error)}")
+            page_source = driver.page_source
                 st.warning("⚠️ Content may not have fully loaded")
         
         soup = BeautifulSoup(page_source, 'html.parser')
@@ -286,20 +317,137 @@ def fetch_cex_price_selenium(product_name):
         else:
             st.warning("⚠️ CeX website indicators not found - may be blocked or loading issue")
         
-        # Find product links and their associated prices
+        # Debug: Show some page structure
+        all_links = soup.find_all('a', href=True)
+        st.info(f"🔗 Total links on page: {len(all_links)}")
+        
+        # Look for any href patterns that might be products
+        href_patterns = {}
+        for link in all_links[:50]:  # Check first 50 links
+            href = link.get('href', '')
+            if href.startswith('/'):
+                path_parts = href.split('/')[1:3]  # Get first two path segments
+                pattern = '/'.join(path_parts) if len(path_parts) > 1 else path_parts[0] if path_parts else 'root'
+                href_patterns[pattern] = href_patterns.get(pattern, 0) + 1
+        
+        if href_patterns:
+            st.info(f"🔍 Common URL patterns found: {dict(list(href_patterns.items())[:10])}")
+        
+        # Strategy A: Find product links and their associated prices
         product_links = soup.select('a[href*="/product-detail"]')
+        
+        # Strategy B: Try to parse embedded JSON in script tags (Nuxt/Vue often embeds data)
+        if not product_links:
+            scripts = soup.find_all('script')
+            import json
+            for sc in scripts:
+                text = sc.get_text(strip=True)
+                if not text or len(text) < 100:
+                    continue
+                # Look for likely JSON blocks containing product data
+                if 'product' in text.lower() or 'items' in text.lower() or 'results' in text.lower():
+                    try:
+                        # Try to extract JSON object
+                        start = text.find('{')
+                        end = text.rfind('}')
+                        if start != -1 and end != -1 and end > start:
+                            obj = json.loads(text[start:end+1])
+                            # Heuristic: look for arrays that could be results
+                            candidates = []
+                            def walk(o):
+                                if isinstance(o, dict):
+                                    for k,v in o.items():
+                                        if isinstance(v, (list,dict)):
+                                            walk(v)
+                                elif isinstance(o, list):
+                                    # look for dict-like list with title/price/url fields
+                                    if len(o) > 0 and isinstance(o[0], dict) and any('price' in (k.lower()) for k in o[0].keys()):
+                                        candidates.append(o)
+                                    else:
+                                        for item in o:
+                                            walk(item)
+                            walk(obj)
+                            if candidates:
+                                st.info(f"🧩 Extracted {sum(len(c) for c in candidates)} items from embedded JSON")
+                                # Convert to synthetic product_links-like structures
+                                product_links = []
+                                for arr in candidates:
+                                    for it in arr:
+                                        title = it.get('title') or it.get('name') or ''
+                                        url = it.get('url') or it.get('href') or ''
+                                        price = it.get('price') or it.get('sellPrice') or it.get('weSellFor')
+                                        if title and url:
+                                            # Create a minimal soup-like object wrapper
+                                            from bs4 import Tag
+                                            a = soup.new_tag('a', href=url)
+                                            a.string = title
+                                            # attach a nearby price wrapper we can find later
+                                            if price:
+                                                p = soup.new_tag('p', **{'class':'product-main-price'})
+                                                p.string = f"£{price}"
+                                                wrapper = soup.new_tag('div')
+                                                wrapper.append(a)
+                                                wrapper.append(p)
+                                                product_links.append(a)
+                                            else:
+                                                product_links.append(a)
+                                if product_links:
+                                    break
+                    except Exception:
+                        continue
+        
         
         # Debug information
         st.info(f"🔍 Search for '{product_name}': Found {len(product_links)} product links")
         
         # Also check for alternative link patterns if main pattern fails
         if not product_links:
-            alt_links = soup.select('a[href*="product"]')
-            st.info(f"🔍 Alternative search found {len(alt_links)} potential product links")
-            if len(alt_links) > 0:
-                # Show first few links for debugging
-                sample_links = [link.get('href', '') for link in alt_links[:3]]
-                st.info(f"🔍 Sample links: {sample_links}")
+            # Try multiple patterns to find the actual link structure
+            patterns_to_try = [
+                'a[href*="product"]',
+                'a[href*="buy"]', 
+                'a[href*="sell"]',
+                'a[href*="item"]',
+                'a[href*="detail"]',
+                'a[class*="product"]',
+                'a[class*="item"]'
+            ]
+            
+            for pattern in patterns_to_try:
+                alt_links = soup.select(pattern)
+                if alt_links:
+                    st.info(f"🔍 Pattern '{pattern}' found {len(alt_links)} links")
+                    # Show first few links for debugging
+                    sample_links = [link.get('href', '') for link in alt_links[:3]]
+                    st.info(f"🔍 Sample links: {sample_links}")
+                    
+                    # Use the first working pattern
+                    product_links = alt_links
+                    break
+        
+        if not product_links:
+            # Strategy C: Try clicking the first product card or category and re-parse
+            try:
+                st.info("🧭 Trying to open first result group and re-parse")
+                from selenium.webdriver.common.by import By
+                cards = driver.find_elements(By.CSS_SELECTOR, 'a, div')
+                clicked = False
+                for el in cards[:50]:
+                    try:
+                        text = el.text.strip().lower()
+                        if any(k in text for k in ['results', 'iphone', 'product', 'category']):
+                            el.click()
+                            time.sleep(3)
+                            page_source = driver.page_source
+                            soup = BeautifulSoup(page_source, 'html.parser')
+                            product_links = soup.select('a[href*="/product-detail"]')
+                            if product_links:
+                                st.success("✅ Found product links after navigation")
+                                break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
         
         if not product_links:
             st.warning(f"⚠️ No product links found for '{product_name}'. Site structure may have changed.")
