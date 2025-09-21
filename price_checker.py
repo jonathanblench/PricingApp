@@ -192,8 +192,41 @@ def fetch_cex_price_selenium(product_name):
             
             if chrome_binary:
                 chrome_options.binary_location = chrome_binary
-                service = Service(ChromeDriverManager().install())
-                driver = webdriver.Chrome(service=service, options=chrome_options)
+                # Use ChromeDriverManager with automatic browser version detection
+                try:
+                    # Force fresh ChromeDriver download that matches Chrome version
+                    import shutil
+                    from pathlib import Path
+                    
+                    # Clear webdriver-manager cache for Chrome
+                    cache_dir = Path.home() / '.wdm' / 'drivers' / 'chromedriver'
+                    if cache_dir.exists():
+                        shutil.rmtree(cache_dir, ignore_errors=True)
+                        st.info("🔄 Cleared ChromeDriver cache to get compatible version")
+                    
+                    # Try multiple approaches to get compatible ChromeDriver
+                    chrome_managers = [
+                        ChromeDriverManager(),  # Auto-detect
+                        ChromeDriverManager(version="LATEST_RELEASE_120"),  # Specific for Chrome 120
+                        ChromeDriverManager(version="latest")  # Force latest
+                    ]
+                    
+                    driver = None
+                    for manager in chrome_managers:
+                        try:
+                            service = Service(manager.install())
+                            driver = webdriver.Chrome(service=service, options=chrome_options)
+                            st.success(f"✅ Chrome initialized with {manager.__class__.__name__}")
+                            break
+                        except Exception as version_attempt_error:
+                            continue
+                    
+                    if not driver:
+                        raise Exception("All Chrome version attempts failed")
+                    
+                except Exception as chrome_version_error:
+                    st.warning(f"Chrome version compatibility issue: {str(chrome_version_error)[:200]}...")
+                    raise chrome_version_error
             else:
                 raise Exception("No Chrome binary found")
                 
@@ -226,8 +259,10 @@ def fetch_cex_price_selenium(product_name):
                 firefox_options.add_argument('--window-size=1920,1080')
                 firefox_options.binary_location = firefox_binary
                 
+                st.info(f"🦊 Using Firefox: {firefox_binary}")
                 service = Service(GeckoDriverManager().install())
                 driver = webdriver.Firefox(service=service, options=firefox_options)
+                st.success("✅ Firefox initialized successfully!")
                 
             except Exception as firefox_error:
                 st.error(f"Both Chrome and Firefox failed: {chrome_error}, {firefox_error}")
