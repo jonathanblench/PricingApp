@@ -34,8 +34,10 @@ st.title("💷 CeX Sell Price Checker")
 # Show status based on Selenium availability
 if SELENIUM_AVAILABLE:
     st.success("✅ **Full Mode** - Selenium enabled for complete functionality")
+    st.info("🐈 Browser will be downloaded automatically on first run (may take 1-2 minutes)")
 else:
     st.warning("⚠️ **Limited Mode** - Using fallback method (some features may not work)")
+    st.info("🔧 Sample CSV download still works. For full functionality, check deployment logs.")
 
 st.markdown(
     """
@@ -153,16 +155,28 @@ def fetch_cex_price_selenium(product_name):
         chrome_options.add_argument('--remote-debugging-port=9222')
         chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         
-        # Try to use system chromium first (for Streamlit Cloud), fallback to ChromeDriverManager
+        # Try Chrome first, fallback to Firefox for Streamlit Cloud compatibility
         try:
-            # For Streamlit Cloud - use system chromium
-            chrome_options.binary_location = '/usr/bin/chromium-browser'
-            service = Service('/usr/bin/chromedriver')
-            driver = webdriver.Chrome(service=service, options=chrome_options)
-        except Exception:
-            # Fallback for local development
             service = Service(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=chrome_options)
+        except Exception as chrome_error:
+            st.warning(f"Chrome failed ({chrome_error}), trying Firefox...")
+            try:
+                from selenium.webdriver.firefox.options import Options as FirefoxOptions
+                from webdriver_manager.firefox import GeckoDriverManager
+                
+                firefox_options = FirefoxOptions()
+                firefox_options.add_argument('--headless')
+                firefox_options.add_argument('--no-sandbox')
+                firefox_options.add_argument('--disable-dev-shm-usage')
+                firefox_options.add_argument('--disable-gpu')
+                firefox_options.add_argument('--window-size=1920,1080')
+                
+                service = Service(GeckoDriverManager().install())
+                driver = webdriver.Firefox(service=service, options=firefox_options)
+            except Exception as firefox_error:
+                st.error(f"Both Chrome and Firefox failed: {chrome_error}, {firefox_error}")
+                raise firefox_error
         driver.set_page_load_timeout(15)  # Set timeout
         
         search_url = f"https://uk.webuy.com/search?stext={requests.utils.quote(product_name.strip())}"

@@ -1,0 +1,5 @@
+# Alternative packages.txt - let webdriver-manager handle Chrome
+wget
+curl
+unzip
+xvfb
