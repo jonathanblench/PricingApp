@@ -302,7 +302,6 @@ def fetch_cex_price_selenium(product_name):
         except Exception as nav_error:
             st.error(f"Navigation error: {str(nav_error)}")
             page_source = driver.page_source
-                st.warning("⚠️ Content may not have fully loaded")
         
         soup = BeautifulSoup(page_source, 'html.parser')
         
