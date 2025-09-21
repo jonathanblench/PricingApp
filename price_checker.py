@@ -29,6 +29,7 @@ except ImportError as e:
 
 st.set_page_config(page_title="CeX Price Checker", page_icon="💷", layout="centered")
 
+# Version 2.1 - Enhanced debugging and Firefox support
 st.title("💷 CeX Sell Price Checker")
 
 # Show status based on Selenium availability
