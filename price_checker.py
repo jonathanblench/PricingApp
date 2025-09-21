@@ -29,16 +29,14 @@ except ImportError as e:
 
 st.set_page_config(page_title="CeX Price Checker", page_icon="💷", layout="centered")
 
-# Version 2.1 - Enhanced debugging and Firefox support
+# Version 2.2 - Clean user interface with simple progress
 st.title("💷 CeX Sell Price Checker")
 
-# Show status based on Selenium availability
+# Show simple status
 if SELENIUM_AVAILABLE:
-    st.success("✅ **Full Mode** - Selenium enabled for complete functionality")
-    st.info("🐈 Browser will be downloaded automatically on first run (may take 1-2 minutes)")
+    st.success("✅ **Ready** - Full CeX price checking available")
 else:
-    st.warning("⚠️ **Limited Mode** - Using fallback method (some features may not work)")
-    st.info("🔧 Sample CSV download still works. For full functionality, check deployment logs.")
+    st.warning("⚠️ **Limited Mode** - Basic functionality only")
 
 st.markdown(
     """
@@ -170,10 +168,7 @@ def fetch_cex_price_selenium(product_name):
             if os.path.exists(path):
                 available_binaries.append(path)
         
-        if available_binaries:
-            st.info(f"🔍 Found browsers: {', '.join(available_binaries)}")
-        else:
-            st.warning("⚠️ No browser binaries found in standard locations")
+        # Browser detection (silent)
         
         # Try Chrome first with explicit binary paths
         try:
@@ -203,21 +198,18 @@ def fetch_cex_price_selenium(product_name):
                     cache_dir = Path.home() / '.wdm' / 'drivers' / 'chromedriver'
                     if cache_dir.exists():
                         shutil.rmtree(cache_dir, ignore_errors=True)
-                        st.info("🔄 Cleared ChromeDriver cache to get compatible version")
                     
                     # Install ChromeDriver (compatible API)
                     service = Service(ChromeDriverManager().install())
                     driver = webdriver.Chrome(service=service, options=chrome_options)
-                    st.success("✅ Chrome initialized successfully")
                     
                 except Exception as chrome_version_error:
-                    st.warning(f"Chrome version compatibility issue: {str(chrome_version_error)[:200]}...")
                     raise chrome_version_error
             else:
                 raise Exception("No Chrome binary found")
                 
         except Exception as chrome_error:
-            st.warning(f"Chrome failed ({chrome_error}), trying Firefox...")
+            # Fallback to Firefox silently
             try:
                 from selenium.webdriver.firefox.options import Options as FirefoxOptions
                 from webdriver_manager.firefox import GeckoDriverManager
@@ -248,10 +240,8 @@ def fetch_cex_price_selenium(product_name):
                 firefox_options.set_preference('dom.webdriver.enabled', False)
                 firefox_options.binary_location = firefox_binary
                 
-                st.info(f"🦊 Using Firefox: {firefox_binary}")
                 service = Service(GeckoDriverManager().install())
                 driver = webdriver.Firefox(service=service, options=firefox_options)
-                st.success("✅ Firefox initialized successfully!")
                 
             except Exception as firefox_error:
                 st.error(f"Both Chrome and Firefox failed: {chrome_error}, {firefox_error}")
@@ -262,10 +252,8 @@ def fetch_cex_price_selenium(product_name):
         search_term = product_name.strip()
         # Remove detailed descriptors for initial search
         search_term = re.sub(r'\s*[,w]\/.*$', '', search_term)
-        st.info(f"🔍 Simplified search term: '{search_term}'")
         
         search_url = f"https://uk.webuy.com/search?stext={requests.utils.quote(search_term)}"
-        st.info(f"🌐 Searching URL: {search_url}")
         
         try:
             driver.get(search_url)
@@ -289,7 +277,6 @@ def fetch_cex_price_selenium(product_name):
             for locator in indicators_to_try:
                 try:
                     element = wait.until(EC.presence_of_element_located(locator))
-                    st.success(f"✅ Content loaded (found {locator[1]})")
                     break
                 except:
                     continue
@@ -297,40 +284,13 @@ def fetch_cex_price_selenium(product_name):
             # Get updated page source after JavaScript execution
             time.sleep(2)  # Short final wait for any remaining updates
             page_source = driver.page_source
-            st.info(f"📝 Page content length: {len(page_source)} bytes")
             
         except Exception as nav_error:
-            st.error(f"Navigation error: {str(nav_error)}")
             page_source = driver.page_source
         
         soup = BeautifulSoup(page_source, 'html.parser')
         
-        # Verify page loaded correctly
-        page_title = soup.find('title')
-        if page_title:
-            st.info(f"📜 Page loaded: {page_title.get_text().strip()}")
-        
-        # Check for CeX-specific indicators
-        if 'cex' in page_source.lower() or 'webuy' in page_source.lower():
-            st.success("✅ CeX website detected in page content")
-        else:
-            st.warning("⚠️ CeX website indicators not found - may be blocked or loading issue")
-        
-        # Debug: Show some page structure
-        all_links = soup.find_all('a', href=True)
-        st.info(f"🔗 Total links on page: {len(all_links)}")
-        
-        # Look for any href patterns that might be products
-        href_patterns = {}
-        for link in all_links[:50]:  # Check first 50 links
-            href = link.get('href', '')
-            if href.startswith('/'):
-                path_parts = href.split('/')[1:3]  # Get first two path segments
-                pattern = '/'.join(path_parts) if len(path_parts) > 1 else path_parts[0] if path_parts else 'root'
-                href_patterns[pattern] = href_patterns.get(pattern, 0) + 1
-        
-        if href_patterns:
-            st.info(f"🔍 Common URL patterns found: {dict(list(href_patterns.items())[:10])}")
+        # Silent page verification
         
         # Strategy A: Find product links and their associated prices
         product_links = soup.select('a[href*="/product-detail"]')
@@ -367,7 +327,6 @@ def fetch_cex_price_selenium(product_name):
                                             walk(item)
                             walk(obj)
                             if candidates:
-                                st.info(f"🧩 Extracted {sum(len(c) for c in candidates)} items from embedded JSON")
                                 # Convert to synthetic product_links-like structures
                                 product_links = []
                                 for arr in candidates:
@@ -396,12 +355,8 @@ def fetch_cex_price_selenium(product_name):
                         continue
         
         
-        # Debug information
-        st.info(f"🔍 Search for '{product_name}': Found {len(product_links)} product links")
-        
-        # Also check for alternative link patterns if main pattern fails
+        # Try alternative link patterns if main pattern fails
         if not product_links:
-            # Try multiple patterns to find the actual link structure
             patterns_to_try = [
                 'a[href*="product"]',
                 'a[href*="buy"]', 
@@ -415,22 +370,14 @@ def fetch_cex_price_selenium(product_name):
             for pattern in patterns_to_try:
                 alt_links = soup.select(pattern)
                 if alt_links:
-                    st.info(f"🔍 Pattern '{pattern}' found {len(alt_links)} links")
-                    # Show first few links for debugging
-                    sample_links = [link.get('href', '') for link in alt_links[:3]]
-                    st.info(f"🔍 Sample links: {sample_links}")
-                    
-                    # Use the first working pattern
                     product_links = alt_links
                     break
         
         if not product_links:
-            # Strategy C: Try clicking the first product card or category and re-parse
+            # Try clicking the first product card or category and re-parse
             try:
-                st.info("🧭 Trying to open first result group and re-parse")
                 from selenium.webdriver.common.by import By
                 cards = driver.find_elements(By.CSS_SELECTOR, 'a, div')
-                clicked = False
                 for el in cards[:50]:
                     try:
                         text = el.text.strip().lower()
@@ -441,7 +388,6 @@ def fetch_cex_price_selenium(product_name):
                             soup = BeautifulSoup(page_source, 'html.parser')
                             product_links = soup.select('a[href*="/product-detail"]')
                             if product_links:
-                                st.success("✅ Found product links after navigation")
                                 break
                     except Exception:
                         continue
@@ -449,7 +395,6 @@ def fetch_cex_price_selenium(product_name):
                 pass
         
         if not product_links:
-            st.warning(f"⚠️ No product links found for '{product_name}'. Site structure may have changed.")
             return None, None, None
         
         best_match = None
@@ -510,7 +455,6 @@ def fetch_cex_price_selenium(product_name):
             return None, None, None
         
     except Exception as e:
-        st.error(f"Error fetching price for '{product_name}': {str(e)}")
         return None, None, None
     finally:
         if driver:
@@ -522,7 +466,6 @@ def fetch_cex_price_selenium(product_name):
 def fetch_cex_price_fallback(product_name):
     """Fallback method using requests when Selenium is not available."""
     try:
-        st.warning("Using fallback mode - limited functionality. Some prices may not be available.")
         
         # Try simple requests approach (limited success due to JavaScript)
         search_url = f"https://uk.webuy.com/search?stext={requests.utils.quote(product_name.strip())}"
@@ -548,7 +491,6 @@ def fetch_cex_price_fallback(product_name):
             return None, None, None
             
     except Exception as e:
-        st.error(f"Fallback method also failed: {str(e)}")
         return None, None, None
 
 
