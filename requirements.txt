@@ -1,4 +1,6 @@
-streamlit
-pandas
-requests
-beautifulsoup4
+streamlit>=1.49.0
+pandas>=2.3.0
+requests>=2.32.0
+beautifulsoup4>=4.13.0
+selenium>=4.35.0
+webdriver-manager>=4.0.0

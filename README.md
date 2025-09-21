@@ -27,10 +27,23 @@ A Streamlit web application that fetches the latest "We Sell For" prices from Ce
 
 ## 🚀 Usage
 
+### Local Development
 1. **Start the application**:
    ```bash
    streamlit run price_checker.py
    ```
+
+### Streamlit Cloud Deployment
+1. **Push to GitHub** with all the required files:
+   - `price_checker.py` (main app)
+   - `requirements.txt` (Python dependencies)
+   - `packages.txt` (system dependencies)
+   - `.streamlit/config.toml` (Streamlit configuration)
+
+2. **Deploy on Streamlit Cloud** at https://share.streamlit.io/
+   - The app will automatically install Chrome/Chromium
+   - All dependencies will be handled automatically
+   - The app uses smart fallback: system Chrome on cloud, ChromeDriverManager locally
 
 2. **Download the sample CSV template** to see the expected format
 
@@ -69,6 +82,28 @@ A Streamlit web application that fetches the latest "We Sell For" prices from Ce
 - Exponential backoff for content loading
 - Results caching to avoid repeat requests
 - Browser cleanup on completion/error
+
+## 📦 Deployment Files
+
+For **Streamlit Cloud** deployment, these files are required:
+
+- **`requirements.txt`**: Python package dependencies
+  ```
+  streamlit>=1.49.0
+  pandas>=2.3.0
+  requests>=2.32.0
+  beautifulsoup4>=4.13.0
+  selenium>=4.35.0
+  webdriver-manager>=4.0.0
+  ```
+
+- **`packages.txt`**: System-level dependencies
+  ```
+  chromium-browser
+  chromium-chromedriver
+  ```
+
+- **`.streamlit/config.toml`**: Streamlit configuration for performance
 
 ## 📊 Output Format
 
